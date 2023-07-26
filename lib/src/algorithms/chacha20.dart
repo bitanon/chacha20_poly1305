@@ -3,71 +3,59 @@
 
 import 'dart:typed_data';
 
-import 'package:hashlib_codecs/hashlib_codecs.dart';
+import 'package:chacha20_poly1305/src/utils.dart';
 
 const int _mask32 = 0xFFFFFFFF;
 
 class ChaCha20 {
   final int counter;
-  final Uint8List key;
-  final Uint8List nonce;
-  final Uint32List _state = Uint32List(16);
-  late final Uint32List _key32 = key.buffer.asUint32List();
-  late final Uint32List _nonce32 = nonce.buffer.asUint32List();
-  late final Uint8List _state8 = _state.buffer.asUint8List();
+  final List<int> key;
+  final List<int> nonce;
 
-  ChaCha20({
+  const ChaCha20({
     this.counter = 1,
     required this.key,
     required this.nonce,
-  }) {
-    if (key.lengthInBytes != 32) {
+  });
+
+  Iterable<int> convert(Iterable<int> data) sync* {
+    final key32 = toBytes(key).buffer.asUint32List();
+    final nonce32 = toBytes(nonce).buffer.asUint32List();
+    if (key32.lengthInBytes != 32) {
       throw ArgumentError('The key should be 32 bytes');
     }
-    if (nonce.lengthInBytes != 12) {
+    if (nonce32.lengthInBytes != 12) {
       throw ArgumentError('The nonce should be 12 bytes');
     }
-  }
 
-  void reset(int p) {
-    _state[0] = 0x61707865;
-    _state[1] = 0x3320646e;
-    _state[2] = 0x79622d32;
-    _state[3] = 0x6b206574;
-    _state[4] = _key32[0];
-    _state[5] = _key32[1];
-    _state[6] = _key32[2];
-    _state[7] = _key32[3];
-    _state[8] = _key32[4];
-    _state[9] = _key32[5];
-    _state[10] = _key32[6];
-    _state[11] = _key32[7];
-    _state[12] = p;
-    _state[13] = _nonce32[0];
-    _state[14] = _nonce32[1];
-    _state[15] = _nonce32[2];
-  }
+    int pos = 0;
+    int nos = counter;
+    final state = Uint32List(16);
+    final state8 = state.buffer.asUint8List();
 
-  Uint8List encrypt(List<int> message) {
-    int i, j, p;
-    final out = Uint8List.fromList(message);
-    p = counter;
-    for (j = 0; j + 64 < message.length; j += 64, p++) {
-      reset(p);
-      _round(_state);
-      print(_state.map((e) => e.toRadixString(16).padLeft(8, '0')).join(' '));
-      for (i = 0; i < 64; ++i) {
-        out[j + i] ^= _state8[i];
+    for (int x in data) {
+      if (pos == 0 || pos == 64) {
+        state[0] = 0x61707865;
+        state[1] = 0x3320646e;
+        state[2] = 0x79622d32;
+        state[3] = 0x6b206574;
+        state[4] = key32[0];
+        state[5] = key32[1];
+        state[6] = key32[2];
+        state[7] = key32[3];
+        state[8] = key32[4];
+        state[9] = key32[5];
+        state[10] = key32[6];
+        state[11] = key32[7];
+        state[12] = nos++;
+        state[13] = nonce32[0];
+        state[14] = nonce32[1];
+        state[15] = nonce32[2];
+        _round(state);
+        pos = 0;
       }
+      yield x ^ state8[pos++];
     }
-    if (j < message.length) {
-      reset(p);
-      _round(_state);
-      for (i = 0; j + i < message.length; ++i) {
-        out[j + i] ^= _state8[i];
-      }
-    }
-    return out;
   }
 
   @pragma('vm:prefer-inline')
@@ -184,22 +172,4 @@ class ChaCha20 {
     state[14] += s14;
     state[15] += s15;
   }
-}
-
-void main() {
-  var key = fromHex(
-      "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
-  var nonce = fromHex("000000000000004a00000000");
-  var message =
-      "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
-  print(toHex(message.codeUnits));
-  final chacha = ChaCha20(
-    key: key,
-    nonce: nonce,
-    counter: 1,
-  );
-  var cipher = chacha.encrypt(message.codeUnits);
-  print(toHex(cipher));
-  var plain = chacha.encrypt(cipher);
-  print(String.fromCharCodes(plain));
 }
